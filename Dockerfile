@@ -1,8 +1,8 @@
 FROM ubuntu:14.04
 
 # Set version and github repo which you want to build from
-ENV GITHUB_OWNER druid-io
-ENV DRUID_VERSION 0.12.1
+ENV GITHUB_OWNER mkuthan
+ENV DRUID_VERSION kafka_emitter_request_log_event_2
 ENV ZOOKEEPER_VERSION 3.4.10
 
 # Java 8
