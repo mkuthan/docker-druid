@@ -1,9 +1,10 @@
 FROM ubuntu:14.04
 
 # Set version and github repo which you want to build from
-ENV GITHUB_OWNER mkuthan
-ENV DRUID_VERSION kafka_emitter_request_log_event_2
+ENV GITHUB_OWNER druid-io
+ENV DRUID_VERSION 0.13.0-incubating-SNAPSHOT
 ENV ZOOKEEPER_VERSION 3.4.10
+ENV KAFKA_VERSION=1.1.1
 
 # Java 8
 RUN apt-get update \
@@ -15,20 +16,20 @@ RUN apt-get update \
       && apt-get install -y oracle-java8-installer oracle-java8-set-default \
                             mysql-server \
                             supervisor \
-                            git \
       && apt-get clean \
       && rm -rf /var/cache/oracle-jdk8-installer \
       && rm -rf /var/lib/apt/lists/*
 
-# Maven
-RUN wget -q -O - http://archive.apache.org/dist/maven/maven-3/3.2.5/binaries/apache-maven-3.2.5-bin.tar.gz | tar -xzf - -C /usr/local \
-      && ln -s /usr/local/apache-maven-3.2.5 /usr/local/apache-maven \
-      && ln -s /usr/local/apache-maven/bin/mvn /usr/local/bin/mvn
-
 # Zookeeper
-RUN wget -q -O - http://www.us.apache.org/dist/zookeeper/zookeeper-$ZOOKEEPER_VERSION/zookeeper-$ZOOKEEPER_VERSION.tar.gz | tar -xzf - -C /usr/local \
+RUN wget -q -O - http://www-eu.apache.org/dist/zookeeper/zookeeper-$ZOOKEEPER_VERSION/zookeeper-$ZOOKEEPER_VERSION.tar.gz | tar -xzf - -C /usr/local \
       && cp /usr/local/zookeeper-$ZOOKEEPER_VERSION/conf/zoo_sample.cfg /usr/local/zookeeper-$ZOOKEEPER_VERSION/conf/zoo.cfg \
       && ln -s /usr/local/zookeeper-$ZOOKEEPER_VERSION /usr/local/zookeeper
+
+# Kafka
+RUN wget -q -O - http://www-eu.apache.org/dist/kafka/$KAFKA_VERSION/kafka_2.12-$KAFKA_VERSION.tgz | tar -xzf - -C /usr/local \
+      && ln -s /usr/local/kafka_2.12-$KAFKA_VERSION /usr/local/kafka \
+      && mkdir -p /usr/local/kafka/logs \
+      && chown daemon /usr/local/kafka/logs
 
 # Druid system user
 RUN adduser --system --group --no-create-home druid \
@@ -36,27 +37,11 @@ RUN adduser --system --group --no-create-home druid \
       && chown druid:druid /var/lib/druid
 
 # Druid (from source)
-RUN mkdir -p /usr/local/druid/lib
+RUN mkdir -p /usr/local/druid
 
-# trigger rebuild only if branch changed
-ADD https://api.github.com/repos/$GITHUB_OWNER/druid/git/refs/heads/$DRUID_VERSION druid-version.json
-RUN git clone -q --branch $DRUID_VERSION --depth 1 https://github.com/$GITHUB_OWNER/druid.git /tmp/druid
-WORKDIR /tmp/druid
+# Install Druid from local disk
 
-# package and install Druid locally
-# use versions-maven-plugin 2.1 to work around https://jira.codehaus.org/browse/MVERSIONS-285
-RUN mvn -U -B org.codehaus.mojo:versions-maven-plugin:2.1:set -DgenerateBackupPoms=false -DnewVersion=$DRUID_VERSION \
-  && mvn -U -B install -DskipTests=true -Dmaven.javadoc.skip=true \
-  && cp services/target/druid-services-$DRUID_VERSION-selfcontained.jar /usr/local/druid/lib \
-  && cp -r distribution/target/extensions /usr/local/druid/ \
-  && cp -r distribution/target/hadoop-dependencies /usr/local/druid/ \
-  && apt-get purge --auto-remove -y git \
-  && apt-get clean \
-  && rm -rf /tmp/* \
-            /var/tmp/* \
-            /usr/local/apache-maven-3.2.5 \
-            /usr/local/apache-maven \
-            /root/.m2
+ADD druid /usr/local/druid/
 
 WORKDIR /
 
@@ -69,7 +54,7 @@ RUN find /var/lib/mysql -type f -exec touch {} \; \
           -Ddruid.extensions.directory=/usr/local/druid/extensions \
           -Ddruid.extensions.loadList=[\"mysql-metadata-storage\"] \
           -Ddruid.metadata.storage.type=mysql \
-          io.druid.cli.Main tools metadata-init \
+          org.apache.druid.cli.Main tools metadata-init \
               --connectURI="jdbc:mysql://localhost:3306/druid" \
               --user=druid --password=diurd \
       && mysql -u root druid < sample-data.sql \
@@ -85,12 +70,14 @@ ADD supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # - 8090: HTTP (overlord)
 # - 3306: MySQL
 # - 2181 2888 3888: ZooKeeper
+# - 9092: Kafka
 EXPOSE 8081
 EXPOSE 8082
 EXPOSE 8083
 EXPOSE 8090
 EXPOSE 3306
 EXPOSE 2181 2888 3888
+EXPOSE 9092
 
 WORKDIR /var/lib/druid
 ENTRYPOINT export HOSTIP="$(resolveip -s $HOSTNAME)" && find /var/lib/mysql -type f -exec touch {} \; && exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf

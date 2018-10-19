@@ -39,11 +39,38 @@ curl http://localhost:3000/druid/v2/datasources
 
 ## Build Druid Docker Image
 
-To build the docker image yourself
+Prepare directories for local distribution
 
 ```sh
-git clone https://github.com/druid-io/docker-druid.git
-docker build -t example-cluster docker-druid
+mkdir -p druid/lib
+mkdir -p druid/extensions
+mkdir -p druid/hadoop-dependencies
+```
+
+Build distribution
+
+```sh
+mvn -DskipTests -Pdist package
+```
+
+Copy distribution into Docker context
+
+```sh
+cp -r ../druid/services/target/*-selfcontained.jar druid/lib/
+cp -r ../druid/distribution/target/extensions druid/
+cp -r ../druid/distribution/target/hadoop-dependencies druid/
+```
+
+Build docker image
+
+```sh
+docker build -t druid-cluster .
+```
+
+Run cluster
+
+```sh
+docker run --rm -i -p 3000:8082 -p 3001:8081 -p 3002:9092 -p 3003:2181 druid-cluster
 ```
 
 ## Logging
